@@ -11,5 +11,9 @@ fi
 
 echo "Starting n8n..."
 docker compose up -d
-echo "n8n is starting at http://localhost:5678"
-echo "Next: create credentials + import the 5 workflows in workflows/ (see README)."
+
+# Reflect the actual host port (configurable via N8N_PORT_HOST in .env; defaults to 5678)
+PORT="$(grep -E '^N8N_PORT_HOST=' .env | tail -1 | cut -d= -f2)"
+PORT="${PORT:-5678}"
+echo "n8n is starting at http://localhost:${PORT}"
+echo "Next: create credentials + import the 6 workflows in workflows/ (see README)."
