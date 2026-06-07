@@ -35,7 +35,7 @@ these automatically via the Airtable Web API (needs a PAT with
 | Field | Type | Notes |
 |---|---|---|
 | Subject | Single line text | Primary field |
-| Company | Link to `Companies` | |
+| Company | Link to `Companies` | created by `setup_airtable.mjs` |
 | Direction | Single select | Outbound, Inbound |
 | Channel | Single select | Email |
 | Body | Long text | full message text |

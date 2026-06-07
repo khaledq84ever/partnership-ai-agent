@@ -136,11 +136,11 @@ openssl rand -hex 32        # paste into N8N_ENCRYPTION_KEY
 ### 2. Create the Airtable CRM
 - Create an empty base in Airtable, copy its `appXXXX` id into `AIRTABLE_BASE_ID`.
 - Create a Personal Access Token (scopes: `data.records:read/write`, `schema.bases:read/write`) → `AIRTABLE_API_KEY`.
-- Auto-create the tables:
+- Auto-create the tables **and** the `Conversations → Companies` link field:
   ```bash
   AIRTABLE_API_KEY=pat... AIRTABLE_BASE_ID=app... node scripts/setup_airtable.mjs
   ```
-- In the Airtable UI, add a **`Company`** field on `Conversations` of type *Link to another record → Companies* (the only field the API can't create in one pass). Reference: `db/airtable-schema.md`.
+  The script is idempotent — re-running it is safe and will fill in the link field if it's missing. Reference: `db/airtable-schema.md`.
 
 ### 3. Start n8n with Docker 🐳
 ```bash

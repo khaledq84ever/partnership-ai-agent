@@ -77,17 +77,60 @@ const conversations = {
   ],
 };
 
+async function listTables() {
+  const res = await fetch(META, { headers });
+  const json = await res.json();
+  if (!res.ok) throw new Error(`Cannot read base schema: ${JSON.stringify(json)}`);
+  return json.tables || [];
+}
+
 async function createTable(table) {
   const res = await fetch(META, { method: "POST", headers, body: JSON.stringify(table) });
   const json = await res.json();
   if (!res.ok) {
+    // Already-exists is fine on a re-run; the ID is recovered from the schema below.
     console.error(`✗ ${table.name}:`, JSON.stringify(json));
-    return;
+    return null;
   }
   console.log(`✓ Created table "${table.name}" (${json.id})`);
+  return json.id;
+}
+
+// Add the Conversations -> Companies link field. The schema API can't create it
+// in the same pass that creates the tables (the linked table must already exist),
+// so it's a follow-up call. Idempotent: skips if the field is already present.
+async function ensureCompanyLink(convId, companiesId) {
+  const conv = (await listTables()).find((t) => t.id === convId);
+  if (conv && conv.fields.some((f) => f.name === "Company")) {
+    console.log('✓ Link field "Company" already present on Conversations');
+    return;
+  }
+  const url = `https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables/${convId}/fields`;
+  const body = { name: "Company", type: "multipleRecordLinks", options: { linkedTableId: companiesId } };
+  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+  const json = await res.json();
+  if (!res.ok) {
+    console.error("✗ Company link field:", JSON.stringify(json));
+    console.error("  Add a 'Company' link field (Conversations -> Companies) manually.");
+    return;
+  }
+  console.log(`✓ Created link field "Company" on Conversations (${json.id})`);
 }
 
 console.log("Creating Airtable CRM tables...");
-await createTable(companies);
-await createTable(conversations);
-console.log("Done. Add a 'Company' link field on Conversations -> Companies in the UI (links cannot be created before both tables exist via API in one pass).");
+let companiesId = await createTable(companies);
+let conversationsId = await createTable(conversations);
+
+// Recover IDs from the live schema when a table already existed (re-run).
+if (!companiesId || !conversationsId) {
+  const tables = await listTables();
+  companiesId = companiesId || (tables.find((t) => t.name === companies.name) || {}).id;
+  conversationsId = conversationsId || (tables.find((t) => t.name === conversations.name) || {}).id;
+}
+
+if (companiesId && conversationsId) {
+  await ensureCompanyLink(conversationsId, companiesId);
+  console.log("Done. Workflows 3 & 4 write Conversations.Company as a link — it's now wired up.");
+} else {
+  console.error("Could not resolve table IDs; create the 'Company' link field manually.");
+}
