@@ -14,7 +14,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}?filterByFormula={{ encodeURIComponent(\"{Status}='New'\") }}&maxRecords=25",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}?filterByFormula={{ encodeURIComponent(\"OR({Status}='New',{Status}='')\") }}&maxRecords=25",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "airtableTokenApi",
         "options": {}
