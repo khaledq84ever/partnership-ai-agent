@@ -54,6 +54,7 @@ const companies = {
     { name: "Status", ...sel(["New", "Analyzed", "Contacted", "Replied", "Negotiating", "Won", "Lost", "Do Not Contact"]) },
     { name: "Last Contact", type: "date", options: { dateFormat: { name: "iso" } } },
     { name: "Next Follow-up", type: "date", options: { dateFormat: { name: "iso" } } },
+    { name: "Follow-ups Sent", type: "number", options: { precision: 0 } },
     { name: "Thread Id", type: "singleLineText" },
     { name: "Notes", type: "multilineText" },
   ],

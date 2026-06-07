@@ -18,7 +18,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}?maxRecords=20&filterByFormula={{ encodeURIComponent(\"AND(NOT({Next Follow-up}=''),IS_BEFORE({Next Follow-up},DATEADD(TODAY(),1,'days')),OR({Status}='Contacted',{Status}='Replied',{Status}='Negotiating'))\") }}",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}?maxRecords=20&filterByFormula={{ encodeURIComponent(\"AND(NOT({Next Follow-up}=''),IS_BEFORE({Next Follow-up},DATEADD(TODAY(),1,'days')),OR({Status}='Contacted',{Status}='Replied',{Status}='Negotiating'),OR({Follow-ups Sent}=BLANK(),{Follow-ups Sent}<\" + (Number($env.MAX_FOLLOWUPS) || 3) + \"))\") }}",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "airtableTokenApi",
         "options": {}
@@ -117,7 +117,7 @@
         "nodeCredentialType": "airtableTokenApi",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ typecast: true, fields: { 'Last Contact': $now.toISODate(), 'Next Follow-up': $now.plus({ days: Number($env.FOLLOWUP_DAYS) || 4 }).toISODate() } }) }}",
+        "jsonBody": "={{ (() => { const cur = Number($('Split Due').item.json.fields['Follow-ups Sent']) || 0; const sent = cur + 1; const max = Number($env.MAX_FOLLOWUPS) || 3; const fields = { 'Last Contact': $now.toISODate(), 'Follow-ups Sent': sent, 'Next Follow-up': sent >= max ? null : $now.plus({ days: Number($env.FOLLOWUP_DAYS) || 4 }).toISODate() }; return JSON.stringify({ typecast: true, fields }); })() }}",
         "options": {}
       },
       "id": "airtable-bump",
