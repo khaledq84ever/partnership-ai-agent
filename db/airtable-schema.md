@@ -26,7 +26,8 @@ these automatically via the Airtable Web API (needs a PAT with
 | Classification | Single select | Hot, Warm, Cold |
 | Status | Single select | New, Analyzed, Contacted, Replied, Negotiating, Won, Lost, Do Not Contact |
 | Last Contact | Date | |
-| Next Follow-up | Date | |
+| Next Follow-up | Date | cleared once MAX_FOLLOWUPS is reached |
+| Follow-ups Sent | Number (integer) | automated nudges sent; capped by `MAX_FOLLOWUPS` |
 | Thread Id | Single line text | Gmail thread for the conversation |
 | Notes | Long text | |
 
