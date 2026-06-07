@@ -66,13 +66,42 @@
     },
     {
       "parameters": {
-        "jsCode": "// Map Apollo people -> contactable Airtable records (must have an email).\nconst people = $json.people || [];\nconst records = [];\nfor (const p of people) {\n  const org = p.organization || {};\n  const email = p.email && !/email_not_unlocked|locked/i.test(p.email) ? p.email : null;\n  if (!email) continue; // sender needs a real address\n  records.push({ fields: {\n    'Name': org.name || p.name || 'Unknown',\n    'Website': org.website_url || org.primary_domain || '',\n    'Industry': org.industry || '',\n    'Country': p.country || org.country || '',\n    'Employees': org.estimated_num_employees ? String(org.estimated_num_employees) : '',\n    'Email': email,\n    'Contact Name': p.name || '',\n    'Title': p.title || '',\n    'LinkedIn': p.linkedin_url || '',\n    'Source': 'Apollo',\n    'Status': 'New'\n  }});\n}\nif (!records.length) return [];\nreturn [{ json: { records } }];"
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/people/bulk_match",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ reveal_personal_emails: true, details: ($json.people || []).slice(0, 10).map(p => ({ id: p.id, first_name: p.first_name, last_name: p.last_name, name: p.name, title: p.title, organization_name: (p.organization || {}).name, domain: (p.organization || {}).primary_domain || (p.organization || {}).website_url, linkedin_url: p.linkedin_url })) }) }}",
+        "options": {}
+      },
+      "id": "apollo-enrich",
+      "name": "Apollo: Reveal Emails",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [20, 380],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "APOLLO_CRED",
+          "name": "Apollo API (X-Api-Key)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Map enriched Apollo matches -> contactable Airtable records (real email required).\n// bulk_match returns `matches[]` (entries may be null when no match was found).\n// Falls back to the raw search `people[]` if enrichment is unavailable.\nconst src = Array.isArray($json.matches) ? $json.matches : ($json.people || []);\nconst records = [];\nconst seen = new Set();\nfor (const p of src) {\n  if (!p) continue;\n  const org = p.organization || {};\n  const raw = p.email || '';\n  const email = raw && !/email_not_unlocked|locked|not_unlocked/i.test(raw) && /.+@.+\\..+/.test(raw) ? raw.toLowerCase() : null;\n  if (!email || seen.has(email)) continue; // sender needs a real, unique address\n  seen.add(email);\n  records.push({ fields: {\n    'Name': org.name || p.name || 'Unknown',\n    'Website': org.website_url || org.primary_domain || '',\n    'Industry': org.industry || '',\n    'Country': p.country || org.country || '',\n    'Employees': org.estimated_num_employees ? String(org.estimated_num_employees) : '',\n    'Email': email,\n    'Contact Name': p.name || [p.first_name, p.last_name].filter(Boolean).join(' '),\n    'Title': p.title || '',\n    'LinkedIn': p.linkedin_url || '',\n    'Source': 'Apollo',\n    'Status': 'New'\n  }});\n}\nif (!records.length) return [];\nreturn [{ json: { records } }];"
       },
       "id": "map-records",
       "name": "Map -> Airtable Records",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [20, 380]
+      "position": [240, 380]
     },
     {
       "parameters": {
@@ -89,7 +118,7 @@
       "name": "Airtable: Upsert Companies",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [240, 380],
+      "position": [460, 380],
       "credentials": {
         "airtableTokenApi": {
           "id": "AIRTABLE_CRED",
@@ -109,6 +138,11 @@
       "main": [[{ "node": "Apollo People Search", "type": "main", "index": 0 }]]
     },
     "Apollo People Search": {
+      "main": [
+        [{ "node": "Apollo: Reveal Emails", "type": "main", "index": 0 }]
+      ]
+    },
+    "Apollo: Reveal Emails": {
       "main": [
         [{ "node": "Map -> Airtable Records", "type": "main", "index": 0 }]
       ]
