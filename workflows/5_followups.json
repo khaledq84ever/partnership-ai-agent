@@ -1,0 +1,158 @@
+{
+  "name": "5 - Smart Follow-ups (Claude -> Gmail)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "days", "daysInterval": 1, "triggerAtHour": 9 }
+          ]
+        }
+      },
+      "id": "trigger-daily",
+      "name": "Daily 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-640, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}?maxRecords=20&filterByFormula={{ encodeURIComponent(\"AND(NOT({Next Follow-up}=''),IS_BEFORE({Next Follow-up},DATEADD(TODAY(),1,'days')),OR({Status}='Contacted',{Status}='Replied',{Status}='Negotiating'))\") }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "airtable-due",
+      "name": "Airtable: Due Follow-ups",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-420, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const recs = ($json.records || []);\nreturn recs.map(r => ({ json: { id: r.id, fields: r.fields } }));"
+      },
+      "id": "split-due",
+      "name": "Split Due",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-200, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "={{ $env.ANTHROPIC_VERSION || '2023-06-01' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.ANTHROPIC_MODEL || 'claude-sonnet-4-6', max_tokens: 500, system: `You are a Partnerships Director at ${$env.ORG_NAME}. Write a SHORT, polite follow-up (max 70 words) to a prospect who has not replied. Add one new piece of value or a softer angle. Not pushy, not guilt-trippy. One light CTA. Match their language (Arabic market => Arabic, else English). Sign as ${$env.SENDER_NAME}. Output STRICT JSON only: {\"language\":\"en|ar\",\"subject\":\"Re: ...\",\"body\":\"text with \\\\n breaks\"}`, messages: [ { role: 'user', content: `Company: ${$json.fields.Name}\\nCountry: ${$json.fields.Country||''}\\nRecommended Approach: ${$json.fields['Recommended Approach']||''}\\nThey were contacted on: ${$json.fields['Last Contact']||''} and have not replied.` } ] }) }}",
+        "options": {}
+      },
+      "id": "claude-followup",
+      "name": "Claude: Follow-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [20, 300],
+      "credentials": {
+        "anthropicApi": { "id": "ANTHROPIC_CRED", "name": "Anthropic API" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const txt = $json.content?.[0]?.text || '{}';\nlet e = {};\ntry { e = JSON.parse(txt); } catch (err) { const m = txt.match(/\\{[\\s\\S]*\\}/); if (m) { try { e = JSON.parse(m[0]); } catch(_){} } }\nconst src = $('Split Due').item.json;\nreturn [{ json: {\n  recordId: src.id,\n  companyEmail: src.fields.Email,\n  subject: e.subject || ('Re: Partnership with ' + ($env.ORG_NAME||'us')),\n  language: e.language || 'en',\n  body: (e.body || '') + '\\n\\n' + ($env.SENDER_SIGNATURE || '').replace(/\\\\n/g,'\\n')\n}}];"
+      },
+      "id": "parse-followup",
+      "name": "Parse Follow-up",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.companyEmail }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": { "senderName": "={{ $env.SENDER_NAME }}" }
+      },
+      "id": "gmail-followup",
+      "name": "Gmail: Send Follow-up",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [460, 300],
+      "credentials": {
+        "gmailOAuth2": { "id": "GMAIL_CRED", "name": "Gmail account" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}/{{ $('Parse Follow-up').item.json.recordId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ typecast: true, fields: { 'Last Contact': $now.toISODate(), 'Next Follow-up': $now.plus({ days: Number($env.FOLLOWUP_DAYS) || 4 }).toISODate() } }) }}",
+        "options": {}
+      },
+      "id": "airtable-bump",
+      "name": "Airtable: Bump Follow-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily 09:00": {
+      "main": [
+        [{ "node": "Airtable: Due Follow-ups", "type": "main", "index": 0 }]
+      ]
+    },
+    "Airtable: Due Follow-ups": {
+      "main": [[{ "node": "Split Due", "type": "main", "index": 0 }]]
+    },
+    "Split Due": {
+      "main": [[{ "node": "Claude: Follow-up", "type": "main", "index": 0 }]]
+    },
+    "Claude: Follow-up": {
+      "main": [[{ "node": "Parse Follow-up", "type": "main", "index": 0 }]]
+    },
+    "Parse Follow-up": {
+      "main": [
+        [{ "node": "Gmail: Send Follow-up", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gmail: Send Follow-up": {
+      "main": [
+        [{ "node": "Airtable: Bump Follow-up", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

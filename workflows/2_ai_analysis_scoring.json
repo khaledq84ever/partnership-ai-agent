@@ -1,0 +1,119 @@
+{
+  "name": "2 - AI Analysis & Lead Scoring (OpenAI)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 30 }] }
+      },
+      "id": "trigger-schedule",
+      "name": "Every 30m",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-640, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}?filterByFormula={{ encodeURIComponent(\"{Status}='New'\") }}&maxRecords=25",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "airtable-get-new",
+      "name": "Airtable: Get New",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-420, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fan out one item per record\nconst recs = ($json.records || []);\nreturn recs.map(r => ({ json: { id: r.id, fields: r.fields } }));"
+      },
+      "id": "split-records",
+      "name": "Split Records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-200, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_MODEL || 'gpt-4o-mini', response_format: { type: 'json_object' }, temperature: 0.3, messages: [ { role: 'system', content: `You are an elite B2B Business Development analyst for ${$env.ORG_NAME} (${$env.ORG_ONE_LINER}). Value prop: ${$env.ORG_VALUE_PROP}. Return STRICT JSON with keys company_summary, opportunity_summary, risk_assessment, recommended_approach, partnership_types (array of any of Sponsorship/Strategic/Advertising/Influencer), best_contact_guess, lead_score (0-100 integer), classification (Hot/Warm/Cold). Scoring: brand fit 0-30, partnership potential 0-25, advertising fit 0-15, business+geo relevance 0-15, response probability 0-15. Hot=80-100, Warm=55-79, Cold=0-54. Be conservative and honest.` }, { role: 'user', content: `Company: ${$json.fields.Name}\\nWebsite: ${$json.fields.Website || ''}\\nIndustry: ${$json.fields.Industry || ''}\\nCountry: ${$json.fields.Country || ''}\\nEmployees: ${$json.fields.Employees || ''}\\nContact: ${$json.fields['Contact Name'] || ''} (${$json.fields.Title || ''})` } ] }) }}",
+        "options": {}
+      },
+      "id": "openai-analyze",
+      "name": "OpenAI: Analyze",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [20, 300],
+      "credentials": {
+        "openAiApi": { "id": "OPENAI_CRED", "name": "OpenAI API" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = $json.choices?.[0]?.message?.content || '{}';\nlet a = {};\ntry { a = JSON.parse(content); } catch (e) {}\nconst id = $('Split Records').item.json.id;\nconst clean = (v) => (v === undefined || v === null) ? '' : v;\nconst types = Array.isArray(a.partnership_types) ? a.partnership_types : [];\nconst valid = ['Sponsorship','Strategic','Advertising','Influencer'];\nreturn [{ json: {\n  recordId: id,\n  fields: {\n    'Company Summary': clean(a.company_summary),\n    'Opportunity Summary': clean(a.opportunity_summary),\n    'Risk Assessment': clean(a.risk_assessment),\n    'Recommended Approach': clean(a.recommended_approach),\n    'Partnership Types': types.filter(t => valid.includes(t)),\n    'Lead Score': Number(a.lead_score) || 0,\n    'Classification': ['Hot','Warm','Cold'].includes(a.classification) ? a.classification : 'Cold',\n    'Status': 'Analyzed'\n  }\n}}];"
+      },
+      "id": "parse-analysis",
+      "name": "Parse Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}/{{ $json.recordId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ fields: $json.fields, typecast: true }) }}",
+        "options": {}
+      },
+      "id": "airtable-update",
+      "name": "Airtable: Save Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 30m": {
+      "main": [[{ "node": "Airtable: Get New", "type": "main", "index": 0 }]]
+    },
+    "Airtable: Get New": {
+      "main": [[{ "node": "Split Records", "type": "main", "index": 0 }]]
+    },
+    "Split Records": {
+      "main": [[{ "node": "OpenAI: Analyze", "type": "main", "index": 0 }]]
+    },
+    "OpenAI: Analyze": {
+      "main": [[{ "node": "Parse Analysis", "type": "main", "index": 0 }]]
+    },
+    "Parse Analysis": {
+      "main": [
+        [{ "node": "Airtable: Save Analysis", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

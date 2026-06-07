@@ -1,0 +1,146 @@
+{
+  "name": "6 - Weekly Performance Report (Analytics)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [1],
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "trigger-weekly",
+      "name": "Weekly Mon 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-640, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}?pageSize=100&fields%5B%5D=Status&fields%5B%5D=Classification&fields%5B%5D=Lead%20Score&fields%5B%5D=Industry&fields%5B%5D=Partnership%20Types",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  { "name": "offset", "value": "={{ $response.body.offset }}" }
+                ]
+              },
+              "paginationCompleteWhenExpression": "={{ !$response.body.offset }}",
+              "limitPagesFetched": false,
+              "type": "updateAParameterInEachRequest"
+            }
+          }
+        }
+      },
+      "id": "airtable-all",
+      "name": "Airtable: All Companies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-420, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge all paginated pages into one record list, then compute funnel metrics.\nconst pages = $input.all();\nlet recs = [];\nfor (const p of pages) { recs = recs.concat((p.json.records || [])); }\nconst f = recs.map(r => r.fields || {});\nconst n = f.length;\nconst count = (pred) => f.filter(pred).length;\nconst byStatus = {};\nfor (const x of f) { const s = x.Status || 'Unknown'; byStatus[s] = (byStatus[s]||0)+1; }\nconst byClass = { Hot: count(x=>x.Classification==='Hot'), Warm: count(x=>x.Classification==='Warm'), Cold: count(x=>x.Classification==='Cold') };\nconst contacted = count(x=>['Contacted','Replied','Negotiating','Won','Lost'].includes(x.Status));\nconst replied = count(x=>['Replied','Negotiating','Won'].includes(x.Status));\nconst won = byStatus['Won']||0;\nconst negotiating = byStatus['Negotiating']||0;\nconst pct = (a,b)=> b? Math.round((a/b)*1000)/10 : 0;\n// per-industry response rate\nconst ind = {};\nfor (const x of f) { const i = x.Industry || 'Unknown'; ind[i] = ind[i] || { contacted:0, replied:0 }; if(['Contacted','Replied','Negotiating','Won','Lost'].includes(x.Status)) ind[i].contacted++; if(['Replied','Negotiating','Won'].includes(x.Status)) ind[i].replied++; }\nconst industryRates = Object.entries(ind).filter(([,v])=>v.contacted>=2).map(([k,v])=>({ industry:k, contacted:v.contacted, replied:v.replied, rate:pct(v.replied,v.contacted) })).sort((a,b)=>b.rate-a.rate);\nconst avgScore = n? Math.round(f.reduce((s,x)=>s+(Number(x['Lead Score'])||0),0)/n) : 0;\nconst metrics = { total: n, byStatus, byClass, contacted, replied, negotiating, won, responseRate: pct(replied, contacted), winRate: pct(won, contacted), avgScore, industryRates };\nreturn [{ json: { metrics } }];"
+      },
+      "id": "compute-metrics",
+      "name": "Compute Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-200, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "={{ $env.ANTHROPIC_VERSION || '2023-06-01' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.ANTHROPIC_MODEL || 'claude-sonnet-4-6', max_tokens: 600, system: `You are a BD analyst for ${$env.ORG_NAME}. Given this week's outreach funnel metrics (JSON), write a concise performance brief: 3-5 bullet insights + 3 concrete recommendations to improve response & conversion next week (e.g. which industries to lean into, whether to raise/lower the send threshold, messaging tweaks). Plain text, no markdown headers, under 180 words.`, messages: [ { role: 'user', content: JSON.stringify($json.metrics) } ] }) }}",
+        "options": {}
+      },
+      "id": "claude-insights",
+      "name": "Claude: Insights",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [20, 300],
+      "credentials": {
+        "anthropicApi": { "id": "ANTHROPIC_CRED", "name": "Anthropic API" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const m = $('Compute Metrics').item.json.metrics;\nconst insight = $json.content?.[0]?.text || '(no insights generated)';\nconst line = (k,v)=>`${k}: ${v}`;\nconst statusLines = Object.entries(m.byStatus).map(([k,v])=>`  - ${k}: ${v}`).join('\\n');\nconst indLines = m.industryRates.slice(0,8).map(r=>`  - ${r.industry}: ${r.rate}% (${r.replied}/${r.contacted})`).join('\\n') || '  - (not enough data yet)';\nconst body = [\n  `PARTNERSHIP OUTREACH — WEEKLY REPORT (${$env.ORG_NAME})`,\n  `Generated: ${$now.toISO()}`,\n  '',\n  '== FUNNEL ==',\n  line('Total companies', m.total),\n  line('Avg lead score', m.avgScore),\n  line('Hot / Warm / Cold', `${m.byClass.Hot} / ${m.byClass.Warm} / ${m.byClass.Cold}`),\n  line('Contacted', m.contacted),\n  line('Replied (engaged)', m.replied),\n  line('Negotiating', m.negotiating),\n  line('Won', m.won),\n  line('Response rate', m.responseRate + '%'),\n  line('Win rate', m.winRate + '%'),\n  '',\n  '== BY STATUS ==',\n  statusLines,\n  '',\n  '== RESPONSE RATE BY INDUSTRY ==',\n  indLines,\n  '',\n  '== AI INSIGHTS ==',\n  insight\n].join('\\n');\nreturn [{ json: { subject: `Weekly Partnership Report — ${$env.ORG_NAME} (${m.responseRate}% response, ${m.won} won)`, body, to: $env.SENDER_EMAIL } }];"
+      },
+      "id": "build-report",
+      "name": "Build Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "gmail-report",
+      "name": "Gmail: Email Report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [460, 300],
+      "credentials": {
+        "gmailOAuth2": { "id": "GMAIL_CRED", "name": "Gmail account" }
+      }
+    }
+  ],
+  "connections": {
+    "Weekly Mon 08:00": {
+      "main": [
+        [{ "node": "Airtable: All Companies", "type": "main", "index": 0 }]
+      ]
+    },
+    "Airtable: All Companies": {
+      "main": [[{ "node": "Compute Metrics", "type": "main", "index": 0 }]]
+    },
+    "Compute Metrics": {
+      "main": [[{ "node": "Claude: Insights", "type": "main", "index": 0 }]]
+    },
+    "Claude: Insights": {
+      "main": [[{ "node": "Build Report", "type": "main", "index": 0 }]]
+    },
+    "Build Report": {
+      "main": [[{ "node": "Gmail: Email Report", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

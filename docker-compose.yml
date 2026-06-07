@@ -1,0 +1,44 @@
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: partnership-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - GENERIC_TIMEZONE=${TZ}
+      - TZ=${TZ}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_DIAGNOSTICS_ENABLED=false
+      # Expose selected env vars to workflow expressions via $env
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL}
+      - ANTHROPIC_VERSION=${ANTHROPIC_VERSION}
+      - APOLLO_API_KEY=${APOLLO_API_KEY}
+      - AIRTABLE_BASE_ID=${AIRTABLE_BASE_ID}
+      - AIRTABLE_TABLE_COMPANIES=${AIRTABLE_TABLE_COMPANIES}
+      - AIRTABLE_TABLE_CONVERSATIONS=${AIRTABLE_TABLE_CONVERSATIONS}
+      - ORG_NAME=${ORG_NAME}
+      - ORG_ONE_LINER=${ORG_ONE_LINER}
+      - ORG_VALUE_PROP=${ORG_VALUE_PROP}
+      - SENDER_NAME=${SENDER_NAME}
+      - SENDER_EMAIL=${SENDER_EMAIL}
+      - SENDER_SIGNATURE=${SENDER_SIGNATURE}
+      - MIN_SCORE_TO_SEND=${MIN_SCORE_TO_SEND}
+      - MAX_SEND_PER_RUN=${MAX_SEND_PER_RUN}
+      - FOLLOWUP_DAYS=${FOLLOWUP_DAYS}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/workflows:ro
+      - ./prompts:/prompts:ro
+
+volumes:
+  n8n_data:

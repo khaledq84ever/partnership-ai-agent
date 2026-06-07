@@ -1,0 +1,313 @@
+{
+  "name": "4 - Reply Reader + AI Negotiator (Gmail <-> Claude)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": { "item": [{ "mode": "everyMinute" }] },
+        "simple": true,
+        "filters": {},
+        "options": {}
+      },
+      "id": "gmail-trigger",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [-980, 300],
+      "credentials": {
+        "gmailOAuth2": { "id": "GMAIL_CRED", "name": "Gmail account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const m = $json;\nconst headers = (m.payload && m.payload.headers) || [];\nconst h = (n) => ((headers.find(x => (x.name||'').toLowerCase() === n) || {}).value) || '';\nconst from = m.From || m.from || h('from');\nconst match = from.match(/<([^>]+)>/);\nconst senderEmail = (match ? match[1] : from).trim().toLowerCase();\nconst subject = m.Subject || m.subject || h('subject');\nconst body = m.text || m.textPlain || m.snippet || '';\nreturn [{ json: { senderEmail, subject, body, threadId: m.threadId, messageId: m.id } }];"
+      },
+      "id": "extract-msg",
+      "name": "Extract Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-760, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}?maxRecords=1&filterByFormula={{ encodeURIComponent(\"LOWER({Email})='\" + $json.senderEmail + \"'\") }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "find-company",
+      "name": "Find Company",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-540, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const found = ($json.records || []);\nif (!found.length) return []; // unknown sender -> ignore (not a tracked lead)\nconst c = found[0];\nconst ex = $('Extract Message').item.json;\nreturn [{ json: { companyId: c.id, companyName: c.fields.Name, senderEmail: ex.senderEmail, subject: ex.subject, latest: ex.body, threadId: ex.threadId, messageId: ex.messageId } }];"
+      },
+      "id": "build-context",
+      "name": "Build Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-320, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_CONVERSATIONS) }}?filterByFormula={{ encodeURIComponent(\"{Thread Id}='\" + $json.threadId + \"'\") }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "get-history",
+      "name": "Get Thread History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-100, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const recs = ($json.records || []).map(r => r.fields);\nconst ctx = $('Build Context').item.json;\nconst hist = recs.map(f => `[${f.Direction||'?'}] ${f.Subject||''}\\n${f.Body||''}`).join('\\n---\\n');\nreturn [{ json: { ...ctx, historyText: hist || '(no prior messages logged)' } }];"
+      },
+      "id": "compose-history",
+      "name": "Compose History",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "={{ $env.ANTHROPIC_VERSION || '2023-06-01' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.ANTHROPIC_MODEL || 'claude-sonnet-4-6', max_tokens: 1000, system: `You are a senior Partnerships Director for ${$env.ORG_NAME} (${$env.ORG_ONE_LINER}). Value prop: ${$env.ORG_VALUE_PROP}. A company replied to our outreach. Understand their message then write the best human reply: answer every question, address objections honestly without inventing numbers, move the deal one concrete step forward, seek a mutually beneficial outcome (sponsorship/advertising/brand collab/product promo/influencer/game or app partnership/strategic alliance/revenue share). Sound warm, confident, human, concise. Match THEIR language exactly (Arabic in => Arabic out; English in => English out). If they decline, be gracious and leave the door open. If a request needs final pricing or legal terms, say you will confirm with the team. Output STRICT JSON only: {\"language\":\"en|ar\",\"intent\":\"Interested|Info|Negotiating|Declining|Stalling|Other\",\"message_summary\":\"...\",\"action_items\":[\"...\"],\"recommended_status\":\"Replied|Negotiating|Won|Lost\",\"needs_human_review\":true|false,\"subject\":\"Re: ...\",\"body\":\"reply text with \\\\n line breaks\"}. Set needs_human_review=true if money/contract terms are being finalized, they are upset, or anything is legally binding.`, messages: [ { role: 'user', content: `Company: ${$json.companyName}\\n\\nConversation so far:\\n${$json.historyText}\\n\\nTHEIR LATEST MESSAGE:\\nSubject: ${$json.subject}\\n${$json.latest}` } ] }) }}",
+        "options": {}
+      },
+      "id": "claude-negotiate",
+      "name": "Claude: Negotiate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [340, 300],
+      "credentials": {
+        "anthropicApi": { "id": "ANTHROPIC_CRED", "name": "Anthropic API" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const txt = $json.content?.[0]?.text || '{}';\nlet r = {};\ntry { r = JSON.parse(txt); } catch (e) {\n  const m = txt.match(/\\{[\\s\\S]*\\}/); if (m) { try { r = JSON.parse(m[0]); } catch(_){} }\n}\nconst statuses = ['Replied','Negotiating','Won','Lost'];\nreturn [{ json: {\n  language: r.language || 'en',\n  intent: r.intent || 'Other',\n  message_summary: r.message_summary || '',\n  action_items: Array.isArray(r.action_items) ? r.action_items.join('; ') : '',\n  recommended_status: statuses.includes(r.recommended_status) ? r.recommended_status : 'Replied',\n  needs_human_review: r.needs_human_review === true,\n  subject: r.subject || ('Re: ' + ($('Build Context').item.json.subject || '')),\n  body: (r.body || '') + '\\n\\n' + ($env.SENDER_SIGNATURE || '').replace(/\\\\n/g,'\\n')\n}}];"
+      },
+      "id": "parse-reply",
+      "name": "Parse Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [560, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_CONVERSATIONS) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ typecast: true, fields: { 'Subject': $('Build Context').item.json.subject, 'Company': [$('Build Context').item.json.companyId], 'Direction': 'Inbound', 'Channel': 'Email', 'Body': $('Build Context').item.json.latest, 'Language': $json.language, 'Intent': $json.intent, 'Summary': $json.message_summary, 'Needs Review': $json.needs_human_review, 'Message Id': $('Build Context').item.json.messageId, 'Thread Id': $('Build Context').item.json.threadId, 'Timestamp': $now.toISO() } }) }}",
+        "options": {}
+      },
+      "id": "log-inbound",
+      "name": "Airtable: Log Inbound",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Parse Reply').item.json.needs_human_review }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-autosend",
+      "name": "IF Auto-send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "reply",
+        "messageId": "={{ $('Build Context').item.json.messageId }}",
+        "emailType": "text",
+        "message": "={{ $('Parse Reply').item.json.body }}",
+        "options": {}
+      },
+      "id": "gmail-reply",
+      "name": "Gmail: Reply",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1240, 200],
+      "credentials": {
+        "gmailOAuth2": { "id": "GMAIL_CRED", "name": "Gmail account" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_CONVERSATIONS) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ typecast: true, fields: { 'Subject': $('Parse Reply').item.json.subject, 'Company': [$('Build Context').item.json.companyId], 'Direction': 'Outbound', 'Channel': 'Email', 'Body': $('Parse Reply').item.json.body, 'Language': $('Parse Reply').item.json.language, 'Message Id': $json.id, 'Thread Id': $('Build Context').item.json.threadId, 'Timestamp': $now.toISO() } }) }}",
+        "options": {}
+      },
+      "id": "log-outbound",
+      "name": "Airtable: Log Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1460, 200],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}/{{ $('Build Context').item.json.companyId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ typecast: true, fields: { 'Status': $('Parse Reply').item.json.recommended_status, 'Last Contact': $now.toISODate(), 'Next Follow-up': $now.plus({ days: Number($env.FOLLOWUP_DAYS) || 4 }).toISODate() } }) }}",
+        "options": {}
+      },
+      "id": "update-company-auto",
+      "name": "Airtable: Update Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1680, 200],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}/{{ $('Build Context').item.json.companyId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ typecast: true, fields: { 'Status': 'Negotiating', 'Notes': 'AI drafted a reply but flagged it for HUMAN REVIEW (money/legal/sensitive). Draft: ' + $('Parse Reply').item.json.body } }) }}",
+        "options": {}
+      },
+      "id": "flag-review",
+      "name": "Airtable: Flag for Review",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1240, 440],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [[{ "node": "Extract Message", "type": "main", "index": 0 }]]
+    },
+    "Extract Message": {
+      "main": [[{ "node": "Find Company", "type": "main", "index": 0 }]]
+    },
+    "Find Company": {
+      "main": [[{ "node": "Build Context", "type": "main", "index": 0 }]]
+    },
+    "Build Context": {
+      "main": [[{ "node": "Get Thread History", "type": "main", "index": 0 }]]
+    },
+    "Get Thread History": {
+      "main": [[{ "node": "Compose History", "type": "main", "index": 0 }]]
+    },
+    "Compose History": {
+      "main": [[{ "node": "Claude: Negotiate", "type": "main", "index": 0 }]]
+    },
+    "Claude: Negotiate": {
+      "main": [[{ "node": "Parse Reply", "type": "main", "index": 0 }]]
+    },
+    "Parse Reply": {
+      "main": [
+        [{ "node": "Airtable: Log Inbound", "type": "main", "index": 0 }]
+      ]
+    },
+    "Airtable: Log Inbound": {
+      "main": [[{ "node": "IF Auto-send?", "type": "main", "index": 0 }]]
+    },
+    "IF Auto-send?": {
+      "main": [
+        [{ "node": "Gmail: Reply", "type": "main", "index": 0 }],
+        [{ "node": "Airtable: Flag for Review", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gmail: Reply": {
+      "main": [[{ "node": "Airtable: Log Reply", "type": "main", "index": 0 }]]
+    },
+    "Airtable: Log Reply": {
+      "main": [
+        [{ "node": "Airtable: Update Status", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

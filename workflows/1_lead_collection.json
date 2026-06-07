@@ -1,0 +1,124 @@
+{
+  "name": "1 - Lead Collection (Apollo -> Airtable)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "hours", "hoursInterval": 6 }] }
+      },
+      "id": "trigger-schedule",
+      "name": "Every 6h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-640, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "add-leads",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "trigger-webhook",
+      "name": "Webhook: Search Now",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-640, 480],
+      "webhookId": "add-leads-hook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Define WHO you are hunting for. Override per-call via the webhook body.\nconst body = ($json.body || {});\nreturn [{ json: {\n  person_titles: body.person_titles || [\n    'Head of Partnerships','Partnerships Manager','Head of Marketing',\n    'Marketing Director','Brand Manager','Sponsorship Manager','BD Manager'\n  ],\n  q_organization_keyword_tags: body.keywords || [\n    'gaming','mobile games','esports','game publishing','gaming hardware',\n    'energy drink','game studio'\n  ],\n  per_page: body.per_page || 10,\n  page: body.page || 1\n}}];"
+      },
+      "id": "set-search",
+      "name": "Search Params",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-420, 380]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/mixed_people/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ person_titles: $json.person_titles, q_organization_keyword_tags: $json.q_organization_keyword_tags, page: $json.page, per_page: $json.per_page }) }}",
+        "options": {}
+      },
+      "id": "apollo-search",
+      "name": "Apollo People Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-200, 380],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "APOLLO_CRED",
+          "name": "Apollo API (X-Api-Key)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Map Apollo people -> contactable Airtable records (must have an email).\nconst people = $json.people || [];\nconst records = [];\nfor (const p of people) {\n  const org = p.organization || {};\n  const email = p.email && !/email_not_unlocked|locked/i.test(p.email) ? p.email : null;\n  if (!email) continue; // sender needs a real address\n  records.push({ fields: {\n    'Name': org.name || p.name || 'Unknown',\n    'Website': org.website_url || org.primary_domain || '',\n    'Industry': org.industry || '',\n    'Country': p.country || org.country || '',\n    'Employees': org.estimated_num_employees ? String(org.estimated_num_employees) : '',\n    'Email': email,\n    'Contact Name': p.name || '',\n    'Title': p.title || '',\n    'LinkedIn': p.linkedin_url || '',\n    'Source': 'Apollo',\n    'Status': 'New'\n  }});\n}\nif (!records.length) return [];\nreturn [{ json: { records } }];"
+      },
+      "id": "map-records",
+      "name": "Map -> Airtable Records",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [20, 380]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ performUpsert: { fieldsToMergeOn: ['Email'] }, typecast: true, records: $json.records }) }}",
+        "options": {}
+      },
+      "id": "airtable-upsert",
+      "name": "Airtable: Upsert Companies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 380],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 6h": {
+      "main": [[{ "node": "Search Params", "type": "main", "index": 0 }]]
+    },
+    "Webhook: Search Now": {
+      "main": [[{ "node": "Search Params", "type": "main", "index": 0 }]]
+    },
+    "Search Params": {
+      "main": [[{ "node": "Apollo People Search", "type": "main", "index": 0 }]]
+    },
+    "Apollo People Search": {
+      "main": [
+        [{ "node": "Map -> Airtable Records", "type": "main", "index": 0 }]
+      ]
+    },
+    "Map -> Airtable Records": {
+      "main": [
+        [{ "node": "Airtable: Upsert Companies", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

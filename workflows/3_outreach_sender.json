@@ -1,0 +1,180 @@
+{
+  "name": "3 - Outreach Sender (Claude -> Gmail -> CRM)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "hours", "hoursInterval": 2 }] }
+      },
+      "id": "trigger-schedule",
+      "name": "Every 2h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-760, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}?maxRecords={{ $env.MAX_SEND_PER_RUN || 25 }}&filterByFormula={{ encodeURIComponent(\"AND({Status}='Analyzed',{Lead Score}>=\" + ($env.MIN_SCORE_TO_SEND || 70) + \",NOT({Email}=''))\") }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {}
+      },
+      "id": "airtable-get-qualified",
+      "name": "Airtable: Qualified Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-540, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const recs = ($json.records || []);\nreturn recs.map(r => ({ json: { id: r.id, fields: r.fields } }));"
+      },
+      "id": "split-leads",
+      "name": "Split Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-320, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "={{ $env.ANTHROPIC_VERSION || '2023-06-01' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.ANTHROPIC_MODEL || 'claude-sonnet-4-6', max_tokens: 700, system: `You are a senior Partnerships Director writing the FIRST outreach email for ${$env.ORG_NAME} (${$env.ORG_ONE_LINER}). Value prop: ${$env.ORG_VALUE_PROP}. Write a short (90-140 words), personalized, human cold email. Open with one specific TRUE observation about their company. Give a concrete mutually-beneficial reason to talk tied to the recommended approach. One low-friction CTA. No buzzwords, no invented facts. Sign as ${$env.SENDER_NAME} on behalf of ${$env.ORG_NAME}. Detect language: Arabic-market company => write entirely in professional Arabic; else professional English. Never mix languages. Output STRICT JSON only: {\"language\":\"en|ar\",\"subject\":\"<60 chars\",\"body\":\"text with \\\\n line breaks\"}`, messages: [ { role: 'user', content: `Company: ${$json.fields.Name}\\nWebsite: ${$json.fields.Website||''}\\nIndustry: ${$json.fields.Industry||''}\\nCountry: ${$json.fields.Country||''}\\nContact: ${$json.fields['Contact Name']||''} (${$json.fields.Title||''})\\nPartnership Types: ${(($json.fields['Partnership Types'])||[]).join(', ')}\\nRecommended Approach: ${$json.fields['Recommended Approach']||''}\\nOpportunity: ${$json.fields['Opportunity Summary']||''}` } ] }) }}",
+        "options": {}
+      },
+      "id": "claude-email",
+      "name": "Claude: Write Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-100, 300],
+      "credentials": {
+        "anthropicApi": { "id": "ANTHROPIC_CRED", "name": "Anthropic API" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const txt = $json.content?.[0]?.text || '{}';\nlet e = {};\ntry { e = JSON.parse(txt); } catch (err) {\n  const m = txt.match(/\\{[\\s\\S]*\\}/); if (m) { try { e = JSON.parse(m[0]); } catch(_){} }\n}\nconst src = $('Split Leads').item.json;\nreturn [{ json: {\n  recordId: src.id,\n  companyEmail: src.fields.Email,\n  companyName: src.fields.Name,\n  language: e.language || 'en',\n  subject: e.subject || ('Partnership with ' + ($env.ORG_NAME||'us')),\n  body: (e.body || '') + '\\n\\n' + ($env.SENDER_SIGNATURE || '').replace(/\\\\n/g,'\\n')\n}}];"
+      },
+      "id": "parse-email",
+      "name": "Parse Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [120, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.companyEmail }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": { "senderName": "={{ $env.SENDER_NAME }}" }
+      },
+      "id": "gmail-send",
+      "name": "Gmail: Send",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [340, 300],
+      "credentials": {
+        "gmailOAuth2": { "id": "GMAIL_CRED", "name": "Gmail account" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_CONVERSATIONS) }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ typecast: true, fields: { 'Subject': $('Parse Email').item.json.subject, 'Company': [$('Parse Email').item.json.recordId], 'Direction': 'Outbound', 'Channel': 'Email', 'Body': $('Parse Email').item.json.body, 'Language': $('Parse Email').item.json.language, 'Message Id': $json.id, 'Thread Id': $json.threadId, 'Timestamp': $now.toISO() } }) }}",
+        "options": {}
+      },
+      "id": "airtable-log-convo",
+      "name": "Airtable: Log Outbound",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [560, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}/{{ $('Parse Email').item.json.recordId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ typecast: true, fields: { 'Status': 'Contacted', 'Last Contact': $now.toISODate(), 'Next Follow-up': $now.plus({ days: Number($env.FOLLOWUP_DAYS) || 4 }).toISODate(), 'Thread Id': $('Gmail: Send').item.json.threadId } }) }}",
+        "options": {}
+      },
+      "id": "airtable-mark-contacted",
+      "name": "Airtable: Mark Contacted",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "AIRTABLE_CRED",
+          "name": "Airtable Personal Access Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 2h": {
+      "main": [
+        [{ "node": "Airtable: Qualified Leads", "type": "main", "index": 0 }]
+      ]
+    },
+    "Airtable: Qualified Leads": {
+      "main": [[{ "node": "Split Leads", "type": "main", "index": 0 }]]
+    },
+    "Split Leads": {
+      "main": [[{ "node": "Claude: Write Email", "type": "main", "index": 0 }]]
+    },
+    "Claude: Write Email": {
+      "main": [[{ "node": "Parse Email", "type": "main", "index": 0 }]]
+    },
+    "Parse Email": {
+      "main": [[{ "node": "Gmail: Send", "type": "main", "index": 0 }]]
+    },
+    "Gmail: Send": {
+      "main": [
+        [{ "node": "Airtable: Log Outbound", "type": "main", "index": 0 }]
+      ]
+    },
+    "Airtable: Log Outbound": {
+      "main": [
+        [{ "node": "Airtable: Mark Contacted", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}
