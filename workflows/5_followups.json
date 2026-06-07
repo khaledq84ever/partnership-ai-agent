@@ -82,7 +82,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const txt = $json.content?.[0]?.text || '{}';\nlet e = {};\ntry { e = JSON.parse(txt); } catch (err) { const m = txt.match(/\\{[\\s\\S]*\\}/); if (m) { try { e = JSON.parse(m[0]); } catch(_){} } }\nconst src = $('Split Due').item.json;\nreturn [{ json: {\n  recordId: src.id,\n  companyEmail: src.fields.Email,\n  subject: e.subject || ('Re: Partnership with ' + ($env.ORG_NAME||'us')),\n  language: e.language || 'en',\n  body: (e.body || '') + '\\n\\n' + ($env.SENDER_SIGNATURE || '').replace(/\\\\n/g,'\\n')\n}}];"
+        "jsCode": "const txt = $json.content?.[0]?.text || '{}';\nlet e = {};\nlet parsed = true;\ntry { e = JSON.parse(txt); } catch (err) { parsed = false; const m = txt.match(/\\{[\\s\\S]*\\}/); if (m) { try { e = JSON.parse(m[0]); parsed = true; } catch(_){} } }\nconst src = $('Split Due').item.json;\nconst aiBody = (e.body || '').trim();\n// Skip rather than send an empty follow-up (which would still burn a MAX_FOLLOWUPS slot).\nif (!parsed || !aiBody) return [];\nreturn [{ json: {\n  recordId: src.id,\n  companyEmail: src.fields.Email,\n  subject: e.subject || ('Re: Partnership with ' + ($env.ORG_NAME||'us')),\n  language: e.language || 'en',\n  body: aiBody + '\\n\\n' + ($env.SENDER_SIGNATURE || '').replace(/\\\\n/g,'\\n')\n}}];"
       },
       "id": "parse-followup",
       "name": "Parse Follow-up",
