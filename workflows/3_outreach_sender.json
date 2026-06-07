@@ -78,7 +78,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const txt = $json.content?.[0]?.text || '{}';\nlet e = {};\ntry { e = JSON.parse(txt); } catch (err) {\n  const m = txt.match(/\\{[\\s\\S]*\\}/); if (m) { try { e = JSON.parse(m[0]); } catch(_){} }\n}\nconst src = $('Split Leads').item.json;\nreturn [{ json: {\n  recordId: src.id,\n  companyEmail: src.fields.Email,\n  companyName: src.fields.Name,\n  language: e.language || 'en',\n  subject: e.subject || ('Partnership with ' + ($env.ORG_NAME||'us')),\n  body: (e.body || '') + '\\n\\n' + ($env.SENDER_SIGNATURE || '').replace(/\\\\n/g,'\\n')\n}}];"
+        "jsCode": "const txt = $json.content?.[0]?.text || '{}';\nlet e = {};\nlet parsed = true;\ntry { e = JSON.parse(txt); } catch (err) {\n  parsed = false;\n  const m = txt.match(/\\{[\\s\\S]*\\}/); if (m) { try { e = JSON.parse(m[0]); parsed = true; } catch(_){} }\n}\nconst src = $('Split Leads').item.json;\nconst aiBody = (e.body || '').trim();\n// Skip this lead rather than send an empty cold email if the model gave no usable body.\n// It stays uncontacted (not marked Contacted) and is retried on the next run.\nif (!parsed || !aiBody) return [];\nreturn [{ json: {\n  recordId: src.id,\n  companyEmail: src.fields.Email,\n  companyName: src.fields.Name,\n  language: e.language || 'en',\n  subject: e.subject || ('Partnership with ' + ($env.ORG_NAME||'us')),\n  body: aiBody + '\\n\\n' + ($env.SENDER_SIGNATURE || '').replace(/\\\\n/g,'\\n')\n}}];"
       },
       "id": "parse-email",
       "name": "Parse Email",
