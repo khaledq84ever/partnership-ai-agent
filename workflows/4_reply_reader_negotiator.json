@@ -38,6 +38,9 @@
       "id": "find-company",
       "name": "Find Company",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [-540, 300],
       "credentials": {
@@ -68,6 +71,9 @@
       "id": "get-history",
       "name": "Get Thread History",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [-100, 300],
       "credentials": {
@@ -110,6 +116,9 @@
       "id": "claude-negotiate",
       "name": "Claude: Negotiate",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [340, 300],
       "credentials": {
@@ -140,6 +149,9 @@
       "id": "log-inbound",
       "name": "Airtable: Log Inbound",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [780, 300],
       "credentials": {
@@ -207,6 +219,9 @@
       "id": "log-outbound",
       "name": "Airtable: Log Reply",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [1460, 200],
       "credentials": {
@@ -230,6 +245,9 @@
       "id": "update-company-auto",
       "name": "Airtable: Update Status",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [1680, 200],
       "credentials": {
@@ -253,6 +271,9 @@
       "id": "flag-review",
       "name": "Airtable: Flag for Review",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [1240, 440],
       "credentials": {

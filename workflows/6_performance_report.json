@@ -44,6 +44,9 @@
       "id": "airtable-all",
       "name": "Airtable: All Companies",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [-420, 300],
       "credentials": {
@@ -86,6 +89,9 @@
       "id": "claude-insights",
       "name": "Claude: Insights",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [20, 300],
       "credentials": {

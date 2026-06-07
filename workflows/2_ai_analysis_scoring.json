@@ -22,6 +22,9 @@
       "id": "airtable-get-new",
       "name": "Airtable: Get New",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [-420, 300],
       "credentials": {
@@ -55,6 +58,9 @@
       "id": "openai-analyze",
       "name": "OpenAI: Analyze",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [20, 300],
       "credentials": {
@@ -85,6 +91,9 @@
       "id": "airtable-update",
       "name": "Airtable: Save Analysis",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [460, 300],
       "credentials": {

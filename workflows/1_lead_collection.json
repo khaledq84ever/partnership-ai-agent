@@ -55,6 +55,9 @@
       "id": "apollo-search",
       "name": "Apollo People Search",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [-200, 380],
       "credentials": {
@@ -84,6 +87,9 @@
       "id": "apollo-enrich",
       "name": "Apollo: Reveal Emails",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [20, 380],
       "credentials": {
@@ -117,6 +123,9 @@
       "id": "airtable-upsert",
       "name": "Airtable: Upsert Companies",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [460, 380],
       "credentials": {

@@ -22,6 +22,9 @@
       "id": "airtable-get-qualified",
       "name": "Airtable: Qualified Leads",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [-540, 300],
       "credentials": {
@@ -64,6 +67,9 @@
       "id": "claude-email",
       "name": "Claude: Write Email",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [-100, 300],
       "credentials": {
@@ -113,6 +119,9 @@
       "id": "airtable-log-convo",
       "name": "Airtable: Log Outbound",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [560, 300],
       "credentials": {
@@ -136,6 +145,9 @@
       "id": "airtable-mark-contacted",
       "name": "Airtable: Mark Contacted",
       "type": "n8n-nodes-base.httpRequest",
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
       "typeVersion": 4.2,
       "position": [780, 300],
       "credentials": {
