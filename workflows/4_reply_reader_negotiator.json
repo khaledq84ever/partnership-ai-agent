@@ -30,7 +30,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}?maxRecords=1&filterByFormula={{ encodeURIComponent(\"LOWER({Email})='\" + $json.senderEmail + \"'\") }}",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_COMPANIES) }}?maxRecords=1&filterByFormula={{ encodeURIComponent('LOWER({Email})=\"' + ($json.senderEmail || '').replace(/\"/g, '') + '\"') }}",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "airtableTokenApi",
         "options": {}
@@ -63,7 +63,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_CONVERSATIONS) }}?filterByFormula={{ encodeURIComponent(\"{Thread Id}='\" + $json.threadId + \"'\") }}",
+        "url": "=https://api.airtable.com/v0/{{ $env.AIRTABLE_BASE_ID }}/{{ encodeURIComponent($env.AIRTABLE_TABLE_CONVERSATIONS) }}?filterByFormula={{ encodeURIComponent('{Thread Id}=\"' + String($json.threadId || '').replace(/\"/g, '') + '\"') }}",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "airtableTokenApi",
         "options": {}
