@@ -117,20 +117,28 @@ async function ensureCompanyLink(convId, companiesId) {
   console.log(`✓ Created link field "Company" on Conversations (${json.id})`);
 }
 
-console.log("Creating Airtable CRM tables...");
-let companiesId = await createTable(companies);
-let conversationsId = await createTable(conversations);
+try {
+  console.log("Creating Airtable CRM tables...");
+  let companiesId = await createTable(companies);
+  let conversationsId = await createTable(conversations);
 
-// Recover IDs from the live schema when a table already existed (re-run).
-if (!companiesId || !conversationsId) {
-  const tables = await listTables();
-  companiesId = companiesId || (tables.find((t) => t.name === companies.name) || {}).id;
-  conversationsId = conversationsId || (tables.find((t) => t.name === conversations.name) || {}).id;
-}
+  // Recover IDs from the live schema when a table already existed (re-run).
+  if (!companiesId || !conversationsId) {
+    const tables = await listTables();
+    companiesId = companiesId || (tables.find((t) => t.name === companies.name) || {}).id;
+    conversationsId = conversationsId || (tables.find((t) => t.name === conversations.name) || {}).id;
+  }
 
-if (companiesId && conversationsId) {
-  await ensureCompanyLink(conversationsId, companiesId);
-  console.log("Done. Workflows 3 & 4 write Conversations.Company as a link — it's now wired up.");
-} else {
-  console.error("Could not resolve table IDs; create the 'Company' link field manually.");
+  if (companiesId && conversationsId) {
+    await ensureCompanyLink(conversationsId, companiesId);
+    console.log("Done. Workflows 3 & 4 write Conversations.Company as a link — it's now wired up.");
+  } else {
+    console.error("Could not resolve table IDs; create the 'Company' link field manually.");
+    process.exit(1);
+  }
+} catch (e) {
+  // A network/DNS blip would otherwise surface as an unhandled rejection with a
+  // raw stack trace; give a clear message and a non-zero exit instead.
+  console.error("Setup failed:", e.message || e);
+  process.exit(1);
 }
